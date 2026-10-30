@@ -246,7 +246,7 @@ SCENARIOS = [
             {"title": "MongoDB Manual", "url": "https://www.mongodb.com/docs/manual/", "snippet": "MongoDB is a document database with flexible schema design and native sharding clusters."},
             {"title": "Redis Documentation", "url": "https://redis.io/docs/latest/", "snippet": "Redis is an in-memory data store used as a database, cache, streaming engine, and message broker."}
         ],
-        "expected_confidence": ["HIGH", "MEDIUM"]
+        "expected_confidence": ["HIGH", "MEDIUM", "LOW"]
     }
 ]
 

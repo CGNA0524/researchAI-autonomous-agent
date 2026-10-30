@@ -86,6 +86,8 @@ Every response conforms strictly to the backward-compatible Pydantic schema:
 
 ## 3. Architecture Overview
 
+![ResearchAI System Architecture](system_architecture.png)
+
 ```
 [ FastAPI Backend / Streamlit UI ]
                 │

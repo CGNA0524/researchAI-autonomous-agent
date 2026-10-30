@@ -22,11 +22,12 @@ Your job is to analyze the user's research question, extract target entities and
 
 CRITICAL PLANNING GUIDELINES:
 1. Deconstruct the research question to identify:
-   - All target entities being researched or compared.
-   - Core evaluation dimensions (e.g. Performance, Architecture, Async, Scalability, Deployment, Security, Limitations).
+   - Target entities: Preserve multi-word product/framework names as single units (e.g. 'Microsoft AutoGen' MUST remain 'Microsoft AutoGen', NEVER split into 'Microsoft' and 'AutoGen').
+   - Instruction verbs (e.g. 'Evaluate', 'Compare', 'Analyze', 'Assess', 'Building') and company prefixes alone MUST NEVER be treated as target research entities.
+   - Core evaluation dimensions: Retain and preserve ALL explicit evaluation dimensions requested by the user (e.g. Architecture, Orchestration, Tool Integration, Memory Management, Scalability, Error Handling, Limitations). Never drop or replace requested dimensions.
    - Specific user constraints (e.g. official documentation, startup context, recent developments).
 2. For comparative tasks, generate search queries that systematically cover EACH entity and major evaluation dimension.
-3. Keep queries concise, keyword-dense, and objective (e.g. 'FastAPI async architecture benchmarks', 'Django ORM performance scale').
+3. Keep queries concise, keyword-dense, and objective (e.g. 'LangGraph stateful graph architecture', 'Microsoft AutoGen multi-agent orchestration').
 4. AVOID stale hardcoded years (do NOT use 2023 or 2024; reference {CURRENT_YEAR} only if time-sensitive).
 5. Output MUST be valid JSON adhering strictly to this schema:
 {{
@@ -83,14 +84,13 @@ class ResearchPlanner:
 
         # Task 1: Primary entity technical overviews
         task1_queries: List[str] = []
-        for entity in entities[:3]:
+        for entity in entities[:4]:
             task1_queries.append(f"{entity} official documentation architecture")
-            task1_queries.append(f"{entity} core features benchmarks")
 
         tasks.append(ResearchTask(
             task_id=task_id,
             objective=f"Retrieve official documentation and technical specifications for {', '.join(entities)}",
-            search_queries=task1_queries[:4],
+            search_queries=task1_queries,
             aspects_to_investigate=["Core architecture", "Official documentation", "Primary capabilities"]
         ))
         task_id += 1
@@ -98,16 +98,17 @@ class ResearchPlanner:
         # Task 2: Comparative benchmarks and operational tradeoffs
         task2_queries: List[str] = []
         if len(entities) >= 2:
-            task2_queries.append(f"{' vs '.join(entities[:3])} performance comparison")
-            task2_queries.append(f"{' '.join(entities[:2])} production limitations tradeoffs")
+            task2_queries.append(f"{' vs '.join(entities[:3])} comparison benchmarks")
+            for entity in entities[:3]:
+                task2_queries.append(f"{entity} production limitations tradeoffs")
         else:
             task2_queries.append(f"{entities[0]} production limitations benchmarks {CURRENT_YEAR}")
 
         tasks.append(ResearchTask(
             task_id=task_id,
             objective="Investigate performance benchmarks, deployment complexity, and production limitations",
-            search_queries=task2_queries[:3],
-            aspects_to_investigate=dimensions[:3] if dimensions else ["Performance", "Scalability", "Limitations"]
+            search_queries=task2_queries[:max(3, len(entities))],
+            aspects_to_investigate=dimensions[:4] if dimensions else ["Performance", "Scalability", "Limitations"]
         ))
 
         return ResearchPlan(

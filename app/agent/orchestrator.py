@@ -94,7 +94,20 @@ class AgentOrchestrator:
                     if q not in queries_to_run:
                         queries_to_run.append(q)
 
-            round_1_queries = queries_to_run[:3] if queries_to_run else [user_question]
+            # Ensure every target entity has at least one query executed in Round 1
+            round_1_queries: List[str] = []
+            if entities and len(entities) > 1:
+                for entity in entities:
+                    for q in queries_to_run:
+                        if entity.lower() in q.lower() and q not in round_1_queries:
+                            round_1_queries.append(q)
+                            break
+                for q in queries_to_run:
+                    if q not in round_1_queries and len(round_1_queries) < max(3, len(entities)):
+                        round_1_queries.append(q)
+            else:
+                round_1_queries = queries_to_run[:3] if queries_to_run else [user_question]
+
             search_queries_used.extend(round_1_queries)
 
             logger.info(f"Executing Round 1 web searches for {len(round_1_queries)} queries...")
@@ -126,7 +139,8 @@ class AgentOrchestrator:
         # ----------------------------------------------------------------------
         urls_to_extract = self.filter.select_urls_for_extraction(
             filtered_sources,
-            max_extract=extract_limit
+            max_extract=extract_limit,
+            target_entities=entities
         )
 
         if urls_to_extract:
@@ -210,7 +224,8 @@ class AgentOrchestrator:
             target_second_hop_queries = EvidenceCoverageValidator.generate_second_hop_queries(
                 missing_pairs=coverage_report.missing_pairs,
                 existing_queries=search_queries_used,
-                max_queries=2
+                max_queries=max(2, min(4, len(coverage_report.missing_entities) + 1)),
+                missing_entities=coverage_report.missing_entities
             )
 
             if target_second_hop_queries:
@@ -235,11 +250,12 @@ class AgentOrchestrator:
                         max_to_keep=10
                     )
 
-                    # Extract up to 2 additional new URLs discovered in Round 2
-                    new_urls_to_extract = [
-                        s.get("url") for s in filtered_sources
-                        if s.get("url") and s.get("url") not in extracted_urls_set
-                    ][:2]
+                    # Extract up to 2 additional new URLs, prioritized by missing entities
+                    new_urls_to_extract = self.filter.select_urls_for_extraction(
+                        [s for s in filtered_sources if s.get("url") and s.get("url") not in extracted_urls_set],
+                        max_extract=2,
+                        target_entities=coverage_report.missing_entities or entities
+                    )
 
                     if new_urls_to_extract:
                         logger.info(f"Round 2: Extracting {len(new_urls_to_extract)} additional pages for missing gaps.")
@@ -274,11 +290,12 @@ class AgentOrchestrator:
         # Phase 8: Programmatic Confidence and Limitation Assessment
         # ----------------------------------------------------------------------
         confidence, assumptions, limitations, confidence_explanation = ConfidenceAssessor.evaluate(
-            search_results=filtered_sources,
+            search_results=verified_sources_list,
             extracted_pages=extracted_pages,
             evidence_snippets=evidence_chunks,
             coverage_report=coverage_report,
-            return_explanation=True
+            return_explanation=True,
+            discovered_sources_count=len(raw_search_results)
         )
 
         # ----------------------------------------------------------------------
@@ -326,6 +343,8 @@ class AgentOrchestrator:
             tools_executed=tools_executed,
             search_queries_used=search_queries_used,
             pages_extracted_count=len([p for p in extracted_pages if p.get("success")]),
+            discovered_sources_count=len(raw_search_results),
+            verified_sources_count=len(verified_sources_list),
             total_execution_time_seconds=total_elapsed,
             llm_provider_used=provider_name,
             llm_model_used=active_model,

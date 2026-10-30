@@ -42,13 +42,19 @@ class EvidenceCoverageReport(BaseModel):
 # Dimension keyword synonyms for semantic matching
 DIMENSION_KEYWORDS: Dict[str, List[str]] = {
     "Performance": ["performance", "latency", "throughput", "speed", "qps", "benchmark", "fast", "overhead"],
-    "Architecture": ["architecture", "design", "internals", "engine", "distributed", "monolithic", "storage", "rust", "c++", "python"],
+    "Architecture": ["architecture", "design", "internals", "engine", "distributed", "monolithic", "storage", "rust", "c++", "python", "graph", "state machine"],
+    "Orchestration": ["orchestration", "multi-agent", "agent coordination", "workflow", "supervisor", "hierarchical", "sequential", "graph execution", "routing"],
+    "Tool Integration": ["tool integration", "tools", "tool calling", "function calling", "external tools", "api tools", "custom tools", "tool use"],
+    "Memory Management": ["memory management", "memory", "short-term memory", "long-term memory", "state persistence", "session memory", "checkpointer", "context window", "message history"],
+    "Error Handling": ["error handling", "exception handling", "retry", "fallback", "recovery", "fault tolerance", "resilience", "human-in-the-loop"],
     "Async Support": ["async", "asynchronous", "asyncio", "concurrency", "uvicorn", "event loop", "non-blocking"],
-    "Scalability": ["scalability", "scale", "clustering", "sharding", "horizontal", "billion", "cluster", "distributed"],
-    "Deployment": ["deployment", "deploy", "docker", "kubernetes", "setup", "self-hosted", "cloud", "managed", "install"],
+    "Scalability": ["scalability", "scale", "clustering", "sharding", "horizontal", "billion", "cluster", "distributed", "parallel"],
+    "Deployment": ["deployment", "deploy", "operational", "maintenance", "operations", "docker", "kubernetes", "setup", "self-hosted", "cloud", "managed", "install"],
     "Authentication": ["auth", "authentication", "authorization", "jwt", "oauth", "security", "permissions"],
     "Database Integration": ["database", "orm", "sql", "nosql", "postgres", "sqlite", "migrations", "model"],
+    "Integrations": ["integration", "integrations", "vector stores", "connectors", "loaders", "plugins"],
     "Ecosystem": ["ecosystem", "community", "libraries", "plugins", "integrations", "github stars", "adoption"],
+    "Developer Experience": ["developer experience", "dx", "api design", "learning curve", "usability", "debugging", "ease of use"],
     "Limitations": ["limitations", "drawbacks", "disadvantages", "bottleneck", "issues", "weakness", "tradeoffs"],
     "Features": ["features", "capabilities", "functionality", "support", "filtering", "payload"],
 }
@@ -56,6 +62,59 @@ DIMENSION_KEYWORDS: Dict[str, List[str]] = {
 
 class EvidenceCoverageValidator:
     """Evaluates whether all requested comparison entities and dimensions have sufficient evidence."""
+
+    # Canonical knowledge dictionary mapping common framework/product expressions to canonical names
+    CANONICAL_ENTITIES: Dict[str, str] = {
+        # Multi-word entities (must be prioritized to avoid breaking into bare words)
+        "microsoft autogen": "Microsoft AutoGen",
+        "autogen": "Microsoft AutoGen",
+        "langgraph": "LangGraph",
+        "lang graph": "LangGraph",
+        "crewai": "CrewAI",
+        "crew ai": "CrewAI",
+        "langchain": "LangChain",
+        "llamaindex": "LlamaIndex",
+        "llama index": "LlamaIndex",
+        "deepset haystack": "Haystack",
+        "haystack": "Haystack",
+        "fastapi": "FastAPI",
+        "django": "Django",
+        "flask": "Flask",
+        "qdrant": "Qdrant",
+        "milvus": "Milvus",
+        "weaviate": "Weaviate",
+        "chromadb": "Chroma",
+        "chroma": "Chroma",
+        "pinecone": "Pinecone",
+        "redis": "Redis",
+        "postgresql": "PostgreSQL",
+        "postgres": "PostgreSQL",
+        "sqlite": "SQLite",
+        "duckdb": "DuckDB",
+        "mongodb": "MongoDB",
+        "docker": "Docker",
+        "kubernetes": "Kubernetes",
+        "celery": "Celery",
+        "apache kafka": "Kafka",
+        "kafka": "Kafka",
+        "apache spark": "Spark",
+        "spark": "Spark",
+        "rabbitmq": "RabbitMQ",
+        "hugging face": "Hugging Face",
+    }
+
+    # Strict non-entity stopwords to prevent imperative instruction verbs or generic terms becoming entities
+    NON_ENTITY_WORDS = {
+        "compare", "comparing", "comparison", "evaluate", "evaluating", "evaluation",
+        "analyze", "analyzing", "analysis", "assess", "assessing", "assessment",
+        "investigate", "investigating", "review", "benchmark", "benchmarking",
+        "what", "which", "how", "why", "who", "whom", "where", "when",
+        "the", "for", "top", "explain", "recommend", "recommendation",
+        "building", "build", "production", "production-ready", "multi-agent",
+        "systems", "system", "applications", "application", "frameworks", "framework",
+        "tools", "tool", "versus", "across", "between", "with", "from", "into",
+        "microsoft", "google", "amazon", "apache"  # Prevent bare company prefixes without product
+    }
 
     @classmethod
     def extract_entities_and_dimensions(
@@ -65,52 +124,64 @@ class EvidenceCoverageValidator:
     ) -> Tuple[List[str], List[str]]:
         """
         Extracts researched entities and relevant evaluation dimensions from the query and plan.
+        Preserves multi-word entity names (e.g. 'Microsoft AutoGen') and prevents instruction verbs ('Evaluate')
+        from becoming entities.
         """
-        question_clean = user_question.replace(",", " ").replace(" vs ", " ").replace(" versus ", " ")
-        words = question_clean.split()
+        question_lower = user_question.lower()
+        matched_items: List[Tuple[int, int, str]] = []
 
-        # Known common tech entities
-        known_techs = [
-            "fastapi", "django", "flask", "qdrant", "milvus", "weaviate", "chroma", "chromadb",
-            "pinecone", "redis", "postgresql", "sqlite", "duckdb", "mongodb", "langchain",
-            "llamaindex", "haystack", "docker", "kubernetes", "celery", "kafka", "rabbitmq"
-        ]
+        # 1. Search for canonical entities (longest multi-word matches first)
+        sorted_canonical = sorted(cls.CANONICAL_ENTITIES.keys(), key=len, reverse=True)
+        for key in sorted_canonical:
+            idx = 0
+            while True:
+                pos = question_lower.find(key, idx)
+                if pos == -1:
+                    break
+                end_pos = pos + len(key)
+                # Ensure word boundary checks
+                is_start_boundary = (pos == 0 or not question_lower[pos - 1].isalnum())
+                is_end_boundary = (end_pos == len(question_lower) or not question_lower[end_pos].isalnum())
 
-        entities: List[str] = []
-        for word in words:
-            clean_word = word.strip("?:;.,'\"").lower()
-            for tech in known_techs:
-                if tech == clean_word and tech.capitalize() not in entities:
-                    # Map canonical proper capitalization
-                    canonical = {
-                        "fastapi": "FastAPI", "django": "Django", "flask": "Flask",
-                        "qdrant": "Qdrant", "milvus": "Milvus", "weaviate": "Weaviate",
-                        "chroma": "Chroma", "chromadb": "Chroma", "pinecone": "Pinecone",
-                        "redis": "Redis", "postgresql": "PostgreSQL", "sqlite": "SQLite",
-                        "duckdb": "DuckDB", "mongodb": "MongoDB", "langchain": "LangChain",
-                        "llamaindex": "LlamaIndex", "haystack": "Haystack",
-                    }.get(tech, tech.capitalize())
-                    if canonical not in entities:
-                        entities.append(canonical)
+                if is_start_boundary and is_end_boundary:
+                    # Check if already covered by an earlier match span
+                    if not any(s <= pos and end_pos <= e for s, e, _ in matched_items):
+                        canonical = cls.CANONICAL_ENTITIES[key]
+                        if not any(m[2] == canonical for m in matched_items):
+                            matched_items.append((pos, end_pos, canonical))
+                idx = end_pos
 
-        # If entities weren't in known dictionary, check capitalized words or keywords
+        # Sort matches by position in question
+        matched_items.sort(key=lambda x: x[0])
+        entities: List[str] = [m[2] for m in matched_items]
+
+        # 2. If fewer than 2 entities found, look for unknown capitalized candidate terms
         if len(entities) < 2:
             candidate_words = [w.strip("?:;.,'\"") for w in user_question.split() if w and w[0].isupper()]
-            stopwords = {"Compare", "What", "Which", "How", "Why", "The", "For", "Top", "Explain", "Recommend"}
             for cw in candidate_words:
-                if cw not in stopwords and len(cw) >= 3 and cw not in entities:
+                clean_cw = cw.lower()
+                if clean_cw not in cls.NON_ENTITY_WORDS and len(cw) >= 3 and cw not in entities:
                     entities.append(cw)
 
-        # Ensure fallback entities if query is a general tech topic
+        # Fallback if no entity was detected
         if not entities:
             entities = ["Primary Topic"]
 
-        # Extract dimensions
-        dimensions: List[str] = []
-        question_lower = user_question.lower()
+        # 3. Extract dimensions
+        matched_dims: List[Tuple[int, str]] = []
         for dim, kws in DIMENSION_KEYWORDS.items():
-            if any(kw in question_lower for kw in kws):
-                dimensions.append(dim)
+            positions = [question_lower.find(kw) for kw in kws if kw in question_lower]
+            if positions:
+                first_pos = min(p for p in positions if p != -1)
+                matched_dims.append((first_pos, dim))
+
+        # Sort dimensions by their appearance order in the question
+        matched_dims.sort(key=lambda x: x[0])
+        dimensions: List[str] = [d[1] for d in matched_dims]
+
+        # Disambiguate: If 'Tool Integration' was requested, avoid redundant generic 'Integrations'
+        if "Tool Integration" in dimensions and "Integrations" in dimensions:
+            dimensions.remove("Integrations")
 
         # Incorporate aspects from plan tasks if available
         if tasks_planned:
@@ -121,13 +192,21 @@ class EvidenceCoverageValidator:
                         if any(kw in asp.lower() for kw in kws) and dim not in dimensions:
                             dimensions.append(dim)
 
-        # Ensure default core dimensions for comparative technical studies
+        # Ensure default core dimensions only if user did not provide sufficient dimensions
         default_core = ["Features", "Architecture", "Performance", "Deployment", "Limitations"]
         for d in default_core:
             if d not in dimensions and len(dimensions) < 4:
                 dimensions.append(d)
 
         return entities, dimensions
+
+    @classmethod
+    def _entity_matches_text(cls, entity: str, text: str) -> bool:
+        """Determines if an entity is referenced in text, supporting multi-word variants."""
+        e_low = entity.lower().strip()
+        if e_low == "microsoft autogen":
+            return "microsoft autogen" in text or "autogen" in text
+        return e_low in text
 
     @classmethod
     def evaluate(
@@ -171,7 +250,7 @@ class EvidenceCoverageValidator:
                 supporting_sources: List[str] = []
                 for src in verified_sources:
                     src_text = f"{src.get('title', '')} {src.get('snippet', '')}".lower()
-                    if entity_lower in src_text and any(dkw in src_text for dkw in dim_keywords):
+                    if cls._entity_matches_text(entity, src_text) and any(dkw in src_text for dkw in dim_keywords):
                         url = src.get("url", "")
                         if url and url not in supporting_sources:
                             supporting_sources.append(url)
@@ -179,7 +258,7 @@ class EvidenceCoverageValidator:
                 # Also inspect extracted evidence chunks
                 chunks_mentioning = sum(
                     1 for c in evidence_chunks
-                    if entity_lower in c.lower() and any(dkw in c.lower() for dkw in dim_keywords)
+                    if cls._entity_matches_text(entity, c.lower()) and any(dkw in c.lower() for dkw in dim_keywords)
                 )
 
                 if len(supporting_sources) >= 2 or (len(supporting_sources) >= 1 and chunks_mentioning >= 1):
@@ -236,28 +315,54 @@ class EvidenceCoverageValidator:
         cls,
         missing_pairs: List[Tuple[str, str]],
         existing_queries: List[str],
-        max_queries: int = 3
+        max_queries: int = 3,
+        missing_entities: Optional[List[str]] = None
     ) -> List[str]:
         """
         Generates highly focused, targeted queries exclusively for missing (entity, dimension) gaps.
+        Prioritizes completely missing entities and interleaves across entities to prevent starvation.
         """
         queries: List[str] = []
         existing_lowered = {q.lower().strip() for q in existing_queries}
 
-        for entity, dimension in missing_pairs:
-            candidate_query = f"{entity} {dimension.lower()} documentation benchmarks"
-            if candidate_query.lower() not in existing_lowered and candidate_query not in queries:
-                queries.append(candidate_query)
-            if len(queries) >= max_queries:
-                break
+        if not missing_pairs:
+            return queries
 
-        # Fallback if specific pairs didn't produce enough
-        if len(queries) < max_queries and missing_pairs:
-            for entity, dimension in missing_pairs:
-                alt_query = f"{entity} official guide {dimension.lower()}"
-                if alt_query.lower() not in existing_lowered and alt_query not in queries:
-                    queries.append(alt_query)
-                if len(queries) >= max_queries:
-                    break
+        # Group missing pairs by entity
+        entity_dims: Dict[str, List[str]] = {}
+        for entity, dimension in missing_pairs:
+            entity_dims.setdefault(entity, []).append(dimension)
+
+        # Prioritize entities: completely missing entities first, then by number of missing dimensions
+        missing_ent_set = set(missing_entities or [])
+        sorted_entities = sorted(
+            entity_dims.keys(),
+            key=lambda e: (e not in missing_ent_set, -len(entity_dims[e]))
+        )
+
+        # Interleave across entities (round-robin)
+        max_depth = max(len(dims) for dims in entity_dims.values()) if entity_dims else 0
+        for depth in range(max_depth):
+            for entity in sorted_entities:
+                dims = entity_dims[entity]
+                if depth < len(dims):
+                    dim = dims[depth]
+                    candidate = f"{entity} {dim.lower()} official documentation guide"
+                    if candidate.lower() not in existing_lowered and candidate not in queries:
+                        queries.append(candidate)
+                    if len(queries) >= max_queries:
+                        return queries
+
+        # Fallback with benchmark queries if slots remain
+        for depth in range(max_depth):
+            for entity in sorted_entities:
+                dims = entity_dims[entity]
+                if depth < len(dims):
+                    dim = dims[depth]
+                    alt = f"{entity} {dim.lower()} architecture benchmarks"
+                    if alt.lower() not in existing_lowered and alt not in queries:
+                        queries.append(alt)
+                    if len(queries) >= max_queries:
+                        return queries
 
         return queries

@@ -24,7 +24,8 @@ class ConfidenceAssessor:
         evidence_snippets: List[str],
         coverage_report: Optional[EvidenceCoverageReport] = None,
         contradictions: Optional[List[str]] = None,
-        return_explanation: bool = False
+        return_explanation: bool = False,
+        discovered_sources_count: Optional[int] = None
     ) -> Union[Tuple[str, List[str], List[str]], Tuple[str, List[str], List[str], str]]:
         """
         Deterministically calculates confidence level, assumptions, and limitations.
@@ -32,6 +33,7 @@ class ConfidenceAssessor:
         Otherwise returns backward-compatible 3-tuple (confidence, assumptions, limitations).
         """
         valid_sources = len(search_results)
+        discovered_sources = discovered_sources_count if discovered_sources_count is not None else valid_sources
         successful_extractions = len([p for p in extracted_pages if p.get("success")])
         total_evidence_volume = sum(len(s) for s in evidence_snippets)
         unresolved_contradictions = contradictions or []
@@ -116,14 +118,29 @@ class ConfidenceAssessor:
         # Total Raw Score
         raw_score = source_pts + authority_pts + coverage_pts + extraction_pts
 
-        # Penalties
+        # Entity completeness is critical in multi-entity comparative research
         if missing_entities:
-            raw_score -= (len(missing_entities) * 8.0)
+            raw_score -= (len(missing_entities) * 10.0)
+
         if unresolved_contradictions:
             raw_score -= 20.0
             limitations.append(f"Contradictory claims detected across sources: {'; '.join(unresolved_contradictions)}")
 
-        final_score = max(0.0, min(100.0, raw_score))
+        pre_cap_score = max(0.0, min(100.0, raw_score))
+        final_score = pre_cap_score
+        hard_safety_override: Optional[str] = None
+
+        # Hard Safety Guard 1: Missing Entity
+        # If an entire entity has no evidence, confidence CANNOT be HIGH or MEDIUM
+        if missing_entities:
+            hard_safety_override = f"Target comparison entity '{missing_entities[0]}' is completely missing from retrieved evidence"
+            final_score = min(final_score, 44.0)
+
+        # Hard Safety Guard 2: Coverage Ratio Deficit (< 40%)
+        # If coverage ratio is below 40%, evidence is inadequate for definitive comparative conclusions
+        elif coverage_ratio < 0.40:
+            hard_safety_override = f"Evidence coverage ({int(coverage_ratio*100)}%) is below the required 40% threshold for comparative analysis"
+            final_score = min(final_score, 44.0)
 
         # ----------------------------------------------------------------------
         # 5. Calibrated Threshold Assignment
@@ -147,33 +164,35 @@ class ConfidenceAssessor:
             assumptions.append("Synthesized consensus across multiple authoritative technical publications and documentation.")
             explanation = (
                 f"HIGH (Score: {final_score:.1f}/100): Strong evidence coverage ({int(coverage_ratio*100)}%), "
-                f"{authoritative_sources} authoritative sources, {successful_extractions} deep page extractions, "
+                f"{valid_sources} verified sources ({authoritative_sources} authoritative, {successful_extractions} deep page extractions), "
                 f"and zero critical entity gaps."
             )
 
-        elif final_score >= 45.0 and coverage_ratio >= 0.40:
+        elif final_score >= 45.0 and coverage_ratio >= 0.40 and not missing_entities:
             confidence = ConfidenceLevel.MEDIUM.value
             if missing_dimensions:
                 limitations.append(f"Moderate coverage: evidence incomplete for dimensions {missing_dimensions}.")
             explanation = (
                 f"MEDIUM (Score: {final_score:.1f}/100): Moderate coverage ({int(coverage_ratio*100)}%), "
-                f"{valid_sources} sources retrieved ({authoritative_sources} authoritative). "
-                f"Evidence is informative but exhibits minor dimension gaps."
+                f"{valid_sources} verified sources ({authoritative_sources} authoritative, {successful_extractions} deep page extractions). "
+                f"Evidence is informative across all target entities with minor dimension gaps."
             )
 
         elif final_score >= 15.0:
             confidence = ConfidenceLevel.LOW.value
             limitations.append("Limited or fragmented supporting evidence; cross-verification across independent sources was weak.")
+            override_text = f" [Hard Safety Override: {hard_safety_override}]" if hard_safety_override else ""
             explanation = (
-                f"LOW (Score: {final_score:.1f}/100): Limited coverage ({int(coverage_ratio*100)}%), "
-                f"{valid_sources} source(s) with partial verification."
+                f"LOW (Score: {final_score:.1f}/100{override_text}): Limited coverage ({int(coverage_ratio*100)}%), "
+                f"{valid_sources} verified source(s) ({authoritative_sources} authoritative, {successful_extractions} deep page extractions)."
             )
 
         else:
             confidence = ConfidenceLevel.INSUFFICIENT_EVIDENCE.value
             limitations.append("Retrieved information lacks substantive technical depth to support definitive comparative conclusions.")
+            override_text = f" [Hard Safety Override: {hard_safety_override}]" if hard_safety_override else ""
             explanation = (
-                f"INSUFFICIENT_EVIDENCE (Score: {final_score:.1f}/100): Critical evidence is missing or unverified. "
+                f"INSUFFICIENT_EVIDENCE (Score: {final_score:.1f}/100{override_text}): Critical evidence is missing or unverified. "
                 f"Confidence downgraded to safeguard against ungrounded speculation."
             )
 

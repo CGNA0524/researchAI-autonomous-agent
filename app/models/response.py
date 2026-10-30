@@ -50,6 +50,8 @@ class ExecutionTrace(BaseModel):
     tools_executed: List[str] = Field(default_factory=list)
     search_queries_used: List[str] = Field(default_factory=list)
     pages_extracted_count: int = 0
+    discovered_sources_count: int = 0
+    verified_sources_count: int = 0
     total_execution_time_seconds: float = 0.0
     llm_provider_used: str = Field(default="", description="Active LLM provider: groq or openai")
     llm_model_used: str = Field(default="", description="Active model name")

@@ -43,6 +43,17 @@ JUNK_PATTERNS = [
     "404 not found",
 ]
 
+# Patterns for off-topic/unrelated results (e.g. flight simulators, video games when researching tech frameworks)
+IRRELEVANT_PATTERNS = [
+    "flight simulator",
+    "flight-simulator",
+    "flight simulation",
+    "aviation",
+    "aircraft",
+    "video game",
+    "xbox game studios",
+    "xbox",
+]
 
 from app.agent.source_classifier import SourceClassifier, SourceCategory
 
@@ -88,8 +99,11 @@ class InformationFilter:
         # Check if user explicitly asked for official documentation
         query_lower = user_query.lower()
         official_requested = any(term in query_lower for term in [
-            "official doc", "official documentation", "primary doc", "official source"
+            "official doc", "official documentation", "primary doc", "official source", "prefer official"
         ])
+
+        # Clean target entities
+        clean_target_entities = [e.lower().strip() for e in (target_entities or []) if len(e.strip()) > 1]
 
         # Extract meaningful query keywords (length >= 3, lowercase)
         stopwords = {"what", "when", "where", "which", "who", "whom", "this", "that", "these", "those",
@@ -136,23 +150,58 @@ class InformationFilter:
                 logger.debug(f"Filtering out low-quality/junk result from {normalized}")
                 continue
 
+            # Irrelevant topics guard (e.g. flight simulator, video games, xbox when researching AI frameworks)
+            source_text_corpus = f"{title.lower()} {snippet.lower()} {domain.lower()} {normalized.lower()}"
+            if any(p in source_text_corpus for p in IRRELEVANT_PATTERNS):
+                logger.debug(f"Filtering off-topic result from {normalized} (matches irrelevant pattern)")
+                continue
+
+            # Entity Grounding: If target entities are defined, source MUST mention at least one target entity
+            matched_target_entity = None
+            if clean_target_entities:
+                for e in clean_target_entities:
+                    matches_e = (
+                        ("autogen" in source_text_corpus) if e == "microsoft autogen" else (e in source_text_corpus)
+                    )
+                    if matches_e or (classified.matched_entity and (
+                        e in classified.matched_entity.lower() or classified.matched_entity.lower() in e
+                    )):
+                        matched_target_entity = e
+                        break
+                if not matched_target_entity and not classified.is_official:
+                    logger.debug(f"Filtering irrelevant search result from {normalized} (mentions none of {clean_target_entities})")
+                    continue
+
             # Calculate keyword relevance
-            text_corpus = f"{title.lower()} {snippet.lower()} {domain.lower()}"
-            keyword_matches = sum(1 for kw in query_words if kw in text_corpus) if query_words else 1
+            keyword_matches = sum(1 for kw in query_words if kw in source_text_corpus) if query_words else 1
 
             # If user provided specific keywords and none matched, penalize or drop
             if query_words and keyword_matches == 0 and not classified.is_official:
                 logger.debug(f"Filtering irrelevant search result from {normalized} (zero keywords matched)")
                 continue
 
-            # Combined score: Authority weight + Keyword relevance + Official boosts
+            # Combined score: Authority weight + Keyword relevance
             base_score = classified.combined_score + (keyword_matches * 0.8)
 
-            # If user explicitly requested official docs, boost official sources and penalize community
+            # Boost verified official sources
+            if classified.is_official:
+                base_score += 2.0
+
+            # Specific Entity Match Boost
+            if matched_target_entity:
+                base_score += 1.5
+
+            # If user explicitly requested official docs, prioritize official docs and penalize encyclopedias/blogs
             if official_requested:
-                if classified.category in (SourceCategory.OFFICIAL_DOCS, SourceCategory.OFFICIAL_REPO):
-                    base_score += 4.0
+                if classified.category == SourceCategory.OFFICIAL_DOCS and classified.is_official:
+                    base_score += 5.0
+                elif classified.category == SourceCategory.OFFICIAL_REPO and classified.is_official:
+                    base_score += 3.0
+                elif any(wiki in domain for wiki in ["wikipedia.org", "en.wikipedia.org"]):
+                    base_score -= 3.5  # Penalize Wikipedia when official docs are requested
                 elif classified.category in (SourceCategory.COMMUNITY_ARTICLE, SourceCategory.GENERAL_REPO):
+                    base_score -= 2.0
+                elif classified.category == SourceCategory.ACADEMIC_PAPER:
                     base_score -= 1.5
 
             item_copy = dict(item)
@@ -161,7 +210,7 @@ class InformationFilter:
             item_copy["category"] = classified.category.value
             item_copy["authority_score"] = classified.authority_score
             item_copy["is_official"] = classified.is_official
-            item_copy["matched_entity"] = classified.matched_entity
+            item_copy["matched_entity"] = matched_target_entity or classified.matched_entity
             item_copy["relevance_overlap"] = float(keyword_matches)
             scored_results.append((base_score, item_copy))
 
@@ -175,16 +224,72 @@ class InformationFilter:
     def select_urls_for_extraction(
         cls,
         filtered_search_results: List[Dict[str, Any]],
-        max_extract: int = 3
+        max_extract: int = 3,
+        target_entities: Optional[List[str]] = None
     ) -> List[str]:
-        """Selects the top distinct URLs that warrant full webpage extraction."""
-        selected: List[str] = []
+        """
+        Selects the top distinct URLs that warrant full webpage extraction.
+        When target_entities are provided, performs round-robin interleaving
+        to ensure balanced evidentiary coverage across all researched entities.
+        """
+        clean_entities = [e.lower().strip() for e in (target_entities or []) if len(e.strip()) > 1]
+        if not clean_entities or len(clean_entities) <= 1:
+            selected: List[str] = []
+            for item in filtered_search_results:
+                url = item.get("url", "")
+                if url and url not in selected:
+                    selected.append(url)
+                if len(selected) >= max_extract:
+                    break
+            return selected
+
+        # Group by target entity
+        entity_groups: Dict[str, List[str]] = {e: [] for e in clean_entities}
+        general_urls: List[str] = []
+
         for item in filtered_search_results:
             url = item.get("url", "")
-            if url and url not in selected:
-                selected.append(url)
+            if not url:
+                continue
+            matched = item.get("matched_entity", "")
+            text_context = f"{item.get('title', '')} {item.get('snippet', '')} {url}".lower()
+
+            found_entity = None
+            if matched and matched.lower() in entity_groups:
+                found_entity = matched.lower()
+            else:
+                for e in clean_entities:
+                    if e in text_context:
+                        found_entity = e
+                        break
+
+            if found_entity:
+                if url not in entity_groups[found_entity]:
+                    entity_groups[found_entity].append(url)
+            else:
+                if url not in general_urls:
+                    general_urls.append(url)
+
+        # Interleave round-robin across entities
+        selected: List[str] = []
+        max_rounds = max((len(urls) for urls in entity_groups.values()), default=0)
+        for r in range(max_rounds):
+            for e in clean_entities:
+                urls = entity_groups.get(e, [])
+                if r < len(urls):
+                    u = urls[r]
+                    if u not in selected:
+                        selected.append(u)
+                    if len(selected) >= max_extract:
+                        return selected
+
+        # Fill any remaining slots with general URLs
+        for u in general_urls:
+            if u not in selected:
+                selected.append(u)
             if len(selected) >= max_extract:
                 break
+
         return selected
 
     @classmethod
