@@ -656,3 +656,206 @@ def test_unsupported_or_weakly_supported_claims_not_marked_fully_grounded():
     assert len(validated_claims[2].supporting_urls) == 0
     assert "[Unverified Observation]" in sanitized[2]
 
+
+# ==============================================================================
+# 10. Topic-Independent Entity, Dimension, Coverage & Second-Hop Pipeline
+# ==============================================================================
+
+def test_healthcare_entity_and_dimension_extraction():
+    """
+    REGRESSION TEST: Healthcare Generative AI Query.
+    Query: 'Conduct a comprehensive research report on how Generative AI is transforming
+    the healthcare industry in 2025–2026. Analyze medical diagnosis, drug discovery,
+    AI healthcare assistants, patient data privacy, real-world implementations,
+    benefits, risks, and future challenges.'
+
+    Verifies:
+    1. Entities extracted are ['Generative AI', 'Healthcare Industry'].
+    2. 'Conduct', 'Generative', 'Analyze', 'Use' are strictly excluded from entities.
+    3. Dimensions extracted match all 8 requested topics:
+       Medical Diagnosis, Drug Discovery, AI Healthcare Assistants, Patient Data Privacy,
+       Real-World Implementations, Benefits, Risks, Future Challenges.
+    4. Hardcoded software dimensions like 'Database Integration', 'Scalability', 'Features'
+       are NOT incorrectly injected.
+    """
+    query = (
+        "Conduct a comprehensive research report on how Generative AI is transforming "
+        "the healthcare industry in 2025–2026. Analyze medical diagnosis, drug discovery, "
+        "AI healthcare assistants, patient data privacy, real-world implementations, "
+        "benefits, risks, and future challenges."
+    )
+
+    entities, dimensions = EvidenceCoverageValidator.extract_entities_and_dimensions(query)
+
+    # 1. Meaningful entities
+    assert "Generative AI" in entities, f"Expected 'Generative AI' in {entities}"
+    assert "Healthcare Industry" in entities, f"Expected 'Healthcare Industry' in {entities}"
+
+    # 2. Command/instruction words must NEVER be entities
+    for forbidden in ["Conduct", "Generative", "Analyze", "Use", "Comprehensive", "Report"]:
+        assert forbidden not in entities, f"Forbidden non-entity '{forbidden}' was extracted: {entities}"
+
+    # 3. Exactly the requested dimensions
+    expected_dimensions = [
+        "Medical Diagnosis",
+        "Drug Discovery",
+        "AI Healthcare Assistants",
+        "Patient Data Privacy",
+        "Real-World Implementations",
+        "Benefits",
+        "Risks",
+        "Future Challenges",
+    ]
+    for dim in expected_dimensions:
+        assert dim in dimensions, f"Missing requested dimension '{dim}' in {dimensions}"
+
+    # 4. Erroneous software defaults must NOT be present
+    for bogus in ["Database Integration", "Features", "Scalability"]:
+        assert bogus not in dimensions, f"Unrelated dimension '{bogus}' was incorrectly generated: {dimensions}"
+
+
+def test_quantum_cryptography_unrelated_query():
+    """
+    REGRESSION TEST: Unrelated Research Query 1 - Quantum Computing & Post-Quantum Cryptography.
+    Query: 'Analyze the impact of Quantum Computing on Post-Quantum Cryptography in 2026.
+    Evaluate lattice-based encryption, stateful hash-based signatures, NIST standards,
+    migration risks, and implementation overhead.'
+
+    Verifies:
+    - Entities are correctly extracted without hardcoding.
+    - Dimensions reflect the specific cryptographic evaluation criteria.
+    - Verbs like 'Analyze' and 'Evaluate' are not treated as entities.
+    """
+    query = (
+        "Analyze the impact of Quantum Computing on Post-Quantum Cryptography in 2026. "
+        "Evaluate lattice-based encryption, stateful hash-based signatures, NIST standards, "
+        "migration risks, and implementation overhead."
+    )
+
+    entities, dimensions = EvidenceCoverageValidator.extract_entities_and_dimensions(query)
+
+    assert "Quantum Computing" in entities
+    assert "Post-Quantum Cryptography" in entities
+    assert "Analyze" not in entities
+    assert "Evaluate" not in entities
+
+    expected_dims = [
+        "Lattice-Based Encryption",
+        "Stateful Hash-Based Signatures",
+        "NIST Standards",
+        "Migration Risks",
+        "Implementation Overhead",
+    ]
+    for dim in expected_dims:
+        assert dim in dimensions, f"Expected '{dim}' in {dimensions}"
+
+
+def test_european_logistics_ev_unrelated_query():
+    """
+    REGRESSION TEST: Unrelated Research Query 2 - Electric Vehicles in European Logistics.
+    Query: 'Evaluate autonomous electric vehicle adoption in European logistics.
+    Assess battery swapping vs ultra-fast charging, total cost of ownership,
+    grid capacity, regulatory hurdles, and safety standards.'
+
+    Verifies:
+    - Multi-word domain entities are extracted cleanly.
+    - Custom evaluation dimensions are accurately captured.
+    """
+    query = (
+        "Evaluate autonomous electric vehicle adoption in European logistics. "
+        "Assess battery swapping vs ultra-fast charging, total cost of ownership, "
+        "grid capacity, regulatory hurdles, and safety standards."
+    )
+
+    entities, dimensions = EvidenceCoverageValidator.extract_entities_and_dimensions(query)
+
+    assert "Autonomous Electric Vehicle" in entities
+    assert "European Logistics" in entities
+    assert "Evaluate" not in entities
+    assert "Assess" not in entities
+
+    dims_lower = [d.lower() for d in dimensions]
+    for expected in [
+        "battery swapping vs ultra-fast charging",
+        "total cost of ownership",
+        "grid capacity",
+        "regulatory hurdles",
+        "safety standards",
+    ]:
+        assert expected in dims_lower, f"Expected '{expected}' in {dimensions}"
+
+
+def test_healthcare_coverage_matrix_and_second_hop_relevance():
+    """
+    REGRESSION TEST: Coverage matrix evaluation and second-hop query generation
+    for the healthcare research topic.
+
+    Verifies:
+    1. Coverage matrix correctly matches healthcare evidence against healthcare dimensions.
+    2. Missing pairs trigger contextual second-hop queries.
+    3. Generated second-hop queries do NOT contain 'official documentation guide'
+       or irrelevant software boilerplate.
+    """
+    query = (
+        "Conduct a comprehensive research report on how Generative AI is transforming "
+        "the healthcare industry in 2025–2026. Analyze medical diagnosis, drug discovery, "
+        "AI healthcare assistants, patient data privacy, real-world implementations, "
+        "benefits, risks, and future challenges."
+    )
+
+    entities, dimensions = EvidenceCoverageValidator.extract_entities_and_dimensions(query)
+
+    # Simulated verified sources with partial coverage (diagnosis and privacy covered; drug discovery missing)
+    snippet = "Generative AI transforms medical diagnosis, radiology pathology detection, and patient data privacy under HIPAA compliance."
+    verified_sources = [
+        {
+            "title": "Generative AI in Clinical Diagnostics 2025",
+            "url": "https://example.org/genai-health-diagnosis",
+            "snippet": snippet
+        }
+    ]
+
+    coverage_report = EvidenceCoverageValidator.evaluate(
+        user_question=query,
+        evidence_chunks=[snippet],
+        verified_sources=verified_sources,
+        entities=entities,
+        dimensions=dimensions
+    )
+
+    # Check matrix structure
+    assert len(coverage_report.coverage_matrix) == len(entities)
+    for ent in entities:
+        assert ent in coverage_report.coverage_matrix
+        for dim in dimensions:
+            assert dim in coverage_report.coverage_matrix[ent]
+
+    # Cell verification: Generative AI + Medical Diagnosis should have evidence
+    assert coverage_report.coverage_matrix["Generative AI"]["Medical Diagnosis"] in ("COVERED", "PARTIAL")
+    assert coverage_report.coverage_matrix["Generative AI"]["Patient Data Privacy"] in ("COVERED", "PARTIAL")
+
+    # AI Healthcare Assistants was not covered in the snippet -> must be a missing pair
+    assert ("Generative AI", "AI Healthcare Assistants") in coverage_report.missing_pairs
+    assert coverage_report.coverage_matrix["Generative AI"]["AI Healthcare Assistants"] == "MISSING"
+
+    # Generate second-hop queries targeting missing evidence
+    second_hop = EvidenceCoverageValidator.generate_second_hop_queries(
+        missing_pairs=coverage_report.missing_pairs,
+        existing_queries=["Generative AI healthcare transformation"],
+        max_queries=4,
+        user_question=query
+    )
+
+    assert len(second_hop) > 0
+    for sh_q in second_hop:
+        # Crucial: Must be relevant to healthcare research, NOT software documentation
+        assert "official documentation guide" not in sh_q
+        assert "architecture benchmarks" not in sh_q
+        # Must target missing entities or dimensions
+        q_lower = sh_q.lower()
+        assert any(
+            term.lower() in q_lower
+            for term in ["generative ai", "drug discovery", "healthcare", "assistants", "diagnosis"]
+        ), f"Second hop query '{sh_q}' lacked context from missing evidence"
+
+

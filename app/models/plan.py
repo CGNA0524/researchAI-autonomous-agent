@@ -25,6 +25,14 @@ class ResearchPlan(BaseModel):
     original_question: str
     primary_objective: str
     needs_web_search: bool = True
+    target_entities: List[str] = Field(
+        default_factory=list,
+        description="Target entities, products, frameworks, or subjects of research"
+    )
+    evaluation_dimensions: List[str] = Field(
+        default_factory=list,
+        description="Explicit evaluation or analysis dimensions requested"
+    )
     tasks: List[ResearchTask] = Field(default_factory=list)
     initial_rationale: str = ""
 

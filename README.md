@@ -533,7 +533,7 @@ ResearchAI enforces five concentric defensive layers to prevent hallucinated ass
 
 ## 15. Evaluation and Testing
 
-### Automated Test Suite (59/59 Tests Passing)
+### Automated Test Suite (63/63 Tests Passing)
 Execute the complete test suite locally:
 ```powershell
 .venv\Scripts\pytest -v
@@ -542,20 +542,24 @@ Execute the complete test suite locally:
 ============================= test session starts =============================
 platform win32 -- Python 3.14.0, pytest-9.2.0, pluggy-1.7.0
 rootdir: C:\Users\NC\Desktop\ai-research-agent
-collected 59 items
+collected 63 items
 
 tests/test_api.py (5 tests) .............. PASSED
 tests/test_openai.py (10 tests) .......... PASSED
 tests/test_orchestrator.py (4 tests) ..... PASSED
-tests/test_research_quality.py (17 tests)  PASSED
+tests/test_research_quality.py (21 tests)  PASSED
 tests/test_security.py (6 tests) ......... PASSED
 tests/test_tools.py (4 tests) ............ PASSED
 tests/test_upgrades.py (13 tests) ........ PASSED
 
-============================= 59 passed in 1.89s ==============================
+============================= 63 passed in 3.68s ==============================
 ```
 
 ### Key Regression Tests Covered
+- `test_healthcare_entity_and_dimension_extraction`: Validates topic-independent extraction on complex biomedical research prompts, extracting `['Generative AI', 'Healthcare Industry']` and all 8 requested dimensions while rejecting instruction verbs (`Conduct`, `Analyze`).
+- `test_quantum_cryptography_unrelated_query`: Validates extraction on cryptography queries (`Quantum Computing`, `Post-Quantum Cryptography`) without hardcoded domain keywords.
+- `test_european_logistics_ev_unrelated_query`: Validates extraction across transportation logistics domain.
+- `test_healthcare_coverage_matrix_and_second_hop_relevance`: Confirms second-hop queries target genuine domain gaps without hardcoded software boilerplates.
 - `test_microsoft_autogen_entity_preservation`: Exactly 3 entities preserved (`LangGraph`, `CrewAI`, `Microsoft AutoGen`).
 - `test_evaluate_not_classified_as_an_entity`: Instruction verbs (`Evaluate`, `Compare`) excluded from research entity status.
 - `test_seven_requested_dimensions_retained`: All 7 requested dimensions retained in sequence without omission.
@@ -594,7 +598,7 @@ Total Live API Credits Consumed: $0.000000 (100% Mocked Offline)
 
 ## 16. Sample Research Outputs
 
-To demonstrate ResearchAI under realistic live conditions, three real-world research queries were executed using the full Streamlit UI and FastAPI backend connected to OpenAI (`gpt-4o-mini`). The complete execution sessions—including user queries, executive short answers, key comparative findings, verified source citations, configuration parameters, coverage matrices, and raw Pydantic JSON outputs—were exported directly from the live application to PDF format and are stored in the [`sample_outputs/`](sample_outputs/) directory.
+To demonstrate ResearchAI under realistic live conditions, four real-world research queries were executed using the full Streamlit UI and FastAPI backend connected to OpenAI (`gpt-4o-mini`). The complete execution sessions—including user queries, executive short answers, key comparative findings, verified source citations, configuration parameters, coverage matrices, and raw Pydantic JSON outputs—were exported directly from the live application to PDF format and are stored in the [`sample_outputs/`](sample_outputs/) directory.
 
 ### Source Accounting Taxonomy
 
@@ -602,8 +606,8 @@ To interpret the metrics accurately across the application and execution traces,
 
 1. **Discovered Sources:** The raw count of search result links returned across all query rounds by the search engine prior to filtering (e.g., 45 search results in Sample 3).
 2. **Candidate Sources Examined:** The deduplicated, domain-validated candidate sources inspected by the authority classifier and content filters (e.g., 10 candidate sources examined in Sample 2 and Sample 3).
-3. **Verified Sources in Execution Metadata:** The internal count of sources that passed HTTP extraction/snippet verification and were logged into the execution trace telemetry (`verified_sources_count`, e.g., 10 verified sources in Sample 3).
-4. **Sources Displayed in Final Bibliography:** The final subset of verified sources directly cited in `sources_used` and displayed as expandable cards under *"Verified Sources Used"* in the Streamlit UI (4 for Sample 1, 2 for Sample 2, and 3 for Sample 3).
+3. **Verified Sources in Execution Metadata:** The internal count of sources that passed HTTP extraction/snippet verification and were logged into the execution trace telemetry (`verified_sources_count`, e.g., 10 verified sources in Sample 3, 5 verified in Sample 4).
+4. **Sources Displayed in Final Bibliography:** The final subset of verified sources directly cited in `sources_used` and displayed as expandable cards under *"Verified Sources Used"* in the Streamlit UI (4 for Sample 1, 2 for Sample 2, 3 for Sample 3, and 5 for Sample 4).
 
 ---
 
@@ -614,6 +618,7 @@ To interpret the metrics accurately across the application and execution traces,
 | [📄 sample_output_1_fastapi_django_flask.pdf](sample_outputs/sample_output_1_fastapi_django_flask.pdf) | Compare FastAPI, Django, and Flask for building a production-ready AI SaaS backend... | **HIGH** | Baseline Execution (No formal matrix)* | **4 sources** in final bibliography (4 in execution metadata) | 19.8s | 5,531 tokens | $0.00134 |
 | [📄 sample_output_2_langchain_llamaindex_haystack.pdf](sample_outputs/sample_output_2_langchain_llamaindex_haystack.pdf) | Compare LangChain, LlamaIndex, and Haystack for building production-ready RAG applications... | **LOW** (Score: 71.2/100) | **30.6%** (1/18 covered, 9 partial) | **2 sources** in final bibliography (10 examined in partial verification) | 37.06s | 8,376 tokens | $0.00175 |
 | [📄 sample_output_3_langgraph_crewai_autogen.pdf](sample_outputs/sample_output_3_langgraph_crewai_autogen.pdf) | Compare LangGraph, CrewAI, and Microsoft AutoGen for building production-ready multi-agent systems... | **LOW** (Score: 30.5/100 [Safety Override]) | **25.0%** (2/20 covered, 6 partial) | **3 sources** in final bibliography (10 in execution metadata, 45 discovered) | 44.23s | 8,660 tokens | $0.00186 |
+| [📄 sample_output_4_generative_ai_healthcare.pdf](sample_outputs/sample_output_4_generative_ai_healthcare.pdf) | Conduct a comprehensive research report on how Generative AI is transforming healthcare in 2025–2026... | **MEDIUM** (Score: 89.7/100) | **65.0%** (5/16 covered, 11 partial, 0 missing) | **5 sources** in final bibliography (5 verified peer-reviewed academic papers) | 55.18s | 8,596 tokens | $0.00192 |
 
 *\*Note: Sample Output 1 was captured as an early baseline HIGH-confidence run prior to the introduction of the formal Evidence Coverage Matrix telemetry grid. All three target frameworks and evaluation dimensions were thoroughly corroborated in synthesized findings.*
 
@@ -670,6 +675,21 @@ To interpret the metrics accurately across the application and execution traces,
   - **Estimated Cost:** $0.001863 USD
   - **Extracted Pages:** 5 pages
 - **Why it Returned LOW Confidence:** In this execution, the agent detected an evidence coverage ratio of only 25.0% with missing dimensions across Scalability, Integrations, and Limitations. Crucially, because the early target entity extraction split `Microsoft AutoGen` into `Microsoft` and `AutoGen`, retrieved evidence for `Microsoft` was completely absent. Rather than allowing the LLM to hallucinate comparative findings for the missing entity, ResearchAI triggered a hard safety override, forcing the confidence score down to 30.5/100 and outputting **LOW** confidence.
+
+#### 4. Sample Output 4 — Healthcare Generative AI 2025–2026 (Topic-Independent Calibration & Academic Grounding)
+- **PDF Artifact:** [`sample_outputs/sample_output_4_generative_ai_healthcare.pdf`](sample_outputs/sample_output_4_generative_ai_healthcare.pdf)
+- **Full Query:** *"Conduct a comprehensive research report on how Generative AI is transforming the healthcare industry in 2025–2026. Analyze medical diagnosis, drug discovery, AI healthcare assistants, patient data privacy, real-world implementations, benefits, risks, and future challenges. Use credible sources, verify important claims, provide citations, identify conflicting or missing evidence, and give a structured conclusion."*
+- **Outcome & Metrics:**
+  - **Confidence Level:** **MEDIUM** (Calibrated score: 89.7/100).
+  - **Evidence Coverage:** **65.0%** (Coverage Ratio: 0.65 | 5 covered, 11 partial, 0 missing across 16 evaluation cells).
+  - **Extracted Target Entities:** `['Generative AI', 'Healthcare Industry']` (demonstrates topic-independent multi-word extraction without instruction verb pollution).
+  - **Extracted Dimensions:** All 8 requested dimensions retained (`Medical Diagnosis`, `Drug Discovery`, `AI Healthcare Assistants`, `Patient Data Privacy`, `Real-World Implementations`, `Benefits`, `Risks`, `Future Challenges`).
+  - **Retrieval Rounds:** 2 rounds. Second-hop queries targeted genuine missing evidence (`Generative AI real-world implementations healthcare research analysis`) without software boilerplate.
+  - **Sources Accounting:** **5 verified peer-reviewed academic papers** in final bibliography (`http://arxiv.org/abs/...` covering healthcare AI, zero-trust confidential computing, and homomorphic encryption).
+  - **Execution Time:** 55.18s
+  - **Tokens Used:** 8,596 total tokens (7,189 prompt + 1,407 completion across 2 LLM calls).
+  - **Estimated Cost:** $0.00192 USD
+- **Why it Returned MEDIUM Confidence:** All 16 cells in the $2 \times 8$ matrix had verified evidentiary support with zero missing cells. However, because several emerging real-world implementation dimensions relied on pre-print clinical evaluations with partial rather than dual-source corroboration, the calibrated confidence algorithm prudently assigned **MEDIUM** (89.7/100) rather than an unearned HIGH.
 
 ---
 

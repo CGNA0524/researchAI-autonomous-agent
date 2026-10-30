@@ -33,6 +33,8 @@ CRITICAL PLANNING GUIDELINES:
 {{
   "original_question": "...",
   "primary_objective": "...",
+  "target_entities": ["Entity 1", "Entity 2"],
+  "evaluation_dimensions": ["Dimension 1", "Dimension 2"],
   "needs_web_search": true,
   "tasks": [
     {{
@@ -82,31 +84,50 @@ class ResearchPlanner:
         tasks: List[ResearchTask] = []
         task_id = 1
 
+        is_software = any(w in user_question.lower() for w in [
+            "framework", "frameworks", "library", "libraries", "api", "backend", "saas",
+            "sdk", "code", "official documentation", "database", "orm", "fastapi", "django",
+            "flask", "langchain", "llamaindex", "haystack", "langgraph", "crewai", "autogen"
+        ])
+
         # Task 1: Primary entity technical overviews
         task1_queries: List[str] = []
         for entity in entities[:4]:
-            task1_queries.append(f"{entity} official documentation architecture")
+            if is_software:
+                task1_queries.append(f"{entity} official documentation architecture")
+            else:
+                task1_queries.append(f"{entity} research overview {CURRENT_YEAR}")
 
         tasks.append(ResearchTask(
             task_id=task_id,
-            objective=f"Retrieve official documentation and technical specifications for {', '.join(entities)}",
+            objective=f"Retrieve foundational evidence and specifications for {', '.join(entities)}",
             search_queries=task1_queries,
-            aspects_to_investigate=["Core architecture", "Official documentation", "Primary capabilities"]
+            aspects_to_investigate=["Core architecture", "Foundational principles", "Primary capabilities"]
         ))
         task_id += 1
 
-        # Task 2: Comparative benchmarks and operational tradeoffs
+        # Task 2: Comparative analysis, key dimensions, and operational tradeoffs
         task2_queries: List[str] = []
         if len(entities) >= 2:
-            task2_queries.append(f"{' vs '.join(entities[:3])} comparison benchmarks")
-            for entity in entities[:3]:
-                task2_queries.append(f"{entity} production limitations tradeoffs")
+            if is_software:
+                task2_queries.append(f"{' vs '.join(entities[:3])} comparison benchmarks")
+                for entity in entities[:3]:
+                    task2_queries.append(f"{entity} production limitations tradeoffs")
+            else:
+                task2_queries.append(f"{' '.join(entities[:2])} analysis {CURRENT_YEAR}")
+                for dim in dimensions[:3]:
+                    task2_queries.append(f"{entities[0]} {dim.lower()} {CURRENT_YEAR}")
         else:
-            task2_queries.append(f"{entities[0]} production limitations benchmarks {CURRENT_YEAR}")
+            primary_entity = entities[0] if entities else "Primary Topic"
+            if dimensions:
+                for dim in dimensions[:3]:
+                    task2_queries.append(f"{primary_entity} {dim.lower()} research")
+            else:
+                task2_queries.append(f"{primary_entity} analysis and challenges {CURRENT_YEAR}")
 
         tasks.append(ResearchTask(
             task_id=task_id,
-            objective="Investigate performance benchmarks, deployment complexity, and production limitations",
+            objective="Investigate requested evaluation dimensions, real-world implementations, and challenges",
             search_queries=task2_queries[:max(3, len(entities))],
             aspects_to_investigate=dimensions[:4] if dimensions else ["Performance", "Scalability", "Limitations"]
         ))
@@ -115,6 +136,8 @@ class ResearchPlanner:
             original_question=user_question,
             primary_objective=f"Investigate and synthesize authoritative findings for: '{user_question}'",
             needs_web_search=True,
+            target_entities=entities,
+            evaluation_dimensions=dimensions,
             tasks=tasks,
             initial_rationale="Deterministic fallback plan generated covering all target entities and major dimensions."
         )

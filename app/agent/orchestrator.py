@@ -72,7 +72,10 @@ class AgentOrchestrator:
         # ----------------------------------------------------------------------
         plan: ResearchPlan = await self.planner.create_plan(user_question)
         entities, dimensions = EvidenceCoverageValidator.extract_entities_and_dimensions(
-            user_question, plan.tasks
+            user_question,
+            plan.tasks,
+            plan_entities=getattr(plan, "target_entities", None),
+            plan_dimensions=getattr(plan, "evaluation_dimensions", None),
         )
         logger.info(
             f"Research plan established. Needs web search: {plan.needs_web_search} | "
@@ -225,7 +228,8 @@ class AgentOrchestrator:
                 missing_pairs=coverage_report.missing_pairs,
                 existing_queries=search_queries_used,
                 max_queries=max(2, min(4, len(coverage_report.missing_entities) + 1)),
-                missing_entities=coverage_report.missing_entities
+                missing_entities=coverage_report.missing_entities,
+                user_question=user_question,
             )
 
             if target_second_hop_queries:
