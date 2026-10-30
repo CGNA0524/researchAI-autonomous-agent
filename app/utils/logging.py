@@ -26,8 +26,12 @@ class SafeFormatter(logging.Formatter):
         for pattern in SECRET_PATTERNS:
             if "api[_-]?key" in pattern.pattern:
                 sanitized = pattern.sub(r"\1***REDACTED***\3", sanitized)
-            else:
-                sanitized = pattern.sub("***REDACTED_API_KEY***", sanitized)
+        # Avoid charmap encoding failures on Windows terminals
+        try:
+            if sys.stdout and sys.stdout.encoding:
+                sanitized.encode(sys.stdout.encoding)
+        except Exception:
+            sanitized = sanitized.encode("ascii", errors="replace").decode("ascii")
         return sanitized
 
 

@@ -115,13 +115,15 @@ if run_button:
                     st.metric("Provider Used", (trace.llm_provider_used if trace else active_prov).upper())
 
             # Confidence Explanation
-            if response.confidence_explanation:
-                st.info(f"**Confidence Analysis:** {response.confidence_explanation}")
+            conf_expl = getattr(response, "confidence_explanation", None)
+            if conf_expl:
+                st.info(f"**Confidence Analysis:** {conf_expl}")
 
             # Evidence Coverage Matrix (if available)
-            if response.evidence_coverage and response.evidence_coverage.get("coverage_matrix"):
+            ev_cov = getattr(response, "evidence_coverage", None)
+            if ev_cov and isinstance(ev_cov, dict) and ev_cov.get("coverage_matrix"):
                 with st.expander("📊 Evidence Coverage Matrix across Entities & Dimensions", expanded=True):
-                    cov = response.evidence_coverage
+                    cov = ev_cov
                     st.write(f"**Coverage Ratio:** {int(cov.get('coverage_ratio', 0) * 100)}% | **Covered:** {cov.get('covered_cells')}/{cov.get('total_cells')} dimensions")
                     matrix_data = cov.get("coverage_matrix", {})
                     if matrix_data:
@@ -136,8 +138,10 @@ if run_button:
             st.subheader("📚 Verified Sources Used")
             if response.sources_used:
                 for src in response.sources_used:
-                    badge = f" [{src.category}]" if src.category else ""
-                    official_badge = " ⭐ (Official)" if src.is_official else ""
+                    src_cat = getattr(src, "category", None)
+                    src_off = getattr(src, "is_official", None)
+                    badge = f" [{src_cat}]" if src_cat else ""
+                    official_badge = " ⭐ (Official)" if src_off else ""
                     with st.expander(f"🔗 {src.title}{badge}{official_badge}"):
                         st.markdown(f"**URL:** [{src.url}]({src.url})")
                         st.markdown(f"**Relevance:** {src.relevance}")
@@ -145,9 +149,10 @@ if run_button:
                 st.write("No external sources could be retrieved.")
 
             # Source Classification Breakdown
-            if response.source_classification:
+            src_class = getattr(response, "source_classification", None)
+            if src_class and isinstance(src_class, dict):
                 with st.expander("🏛️ Source Authority Breakdown"):
-                    for category, items in response.source_classification.items():
+                    for category, items in src_class.items():
                         st.markdown(f"**{category}** ({len(items)})")
                         for item in items:
                             st.markdown(f"- {item}")
